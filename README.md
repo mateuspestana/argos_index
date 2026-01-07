@@ -61,12 +61,23 @@ Processa todos os arquivos UFDR novos encontrados no diretório configurado:
 .venv/bin/python main.py --mode once
 ```
 
+```powershell
+# Windows (PowerShell)
+.\.venv\Scripts\python.exe .\main.py --mode once
+```
+
 #### Modo Contínuo
 
 Monitora o diretório continuamente e processa novos arquivos automaticamente:
 
 ```bash
 .venv/bin/python main.py --mode continuous
+```
+
+```powershell
+# Windows (PowerShell) - ou use o script
+.\.venv\Scripts\python.exe .\main.py --mode continuous
+.\run_worker.ps1
 ```
 
 ### 2. Interface Web (Streamlit)
@@ -82,9 +93,21 @@ cd argos/client
 PYTHONPATH=../.. ../../.venv/bin/streamlit run app.py
 ```
 
+```powershell
+# Windows (PowerShell) - ou duplo clique no .bat
+.\run_client.ps1
+```
+
 A interface estará disponível em `http://localhost:8501` com navegação moderna usando `st.Page` e `st.navigation`.
 
 A interface estará disponível em `http://localhost:8501`
+
+### 3. Tudo de uma vez (Windows)
+
+Para iniciar worker e cliente em paralelo no Windows:
+
+- Duplo clique em `run_all.bat`, ou
+- Via terminal: `.\run_all.bat`
 
 ## ⚙️ Configuração
 
@@ -321,4 +344,3 @@ rm data/database.db
 ## 📞 Suporte
 
 Para questões ou problemas, consulte os logs em `logs/argos.log` ou verifique a documentação em `PROJECT.md`.
-
