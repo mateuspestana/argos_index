@@ -1,0 +1,222 @@
+# Argos Index - .gitignore
+
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ============================================
+# Ambiente Virtual
+# ============================================
+.venv/
+venv/
+ENV/
+env/
+.ENV
+
+# ============================================
+# Banco de Dados
+# ============================================
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+data/database.db
+data/*.db
+
+# ============================================
+# Arquivos UFDR (grandes demais para git)
+# ============================================
+*.ufdr
+ufdrs/*.ufdr
+ufdrs/**/*.ufdr
+
+# Mantém estrutura de diretórios mas ignora conteúdo
+ufdrs/unzip_ufdr/**/*
+!ufdrs/unzip_ufdr/.gitkeep
+ufdrs/db_*/**/*
+!ufdrs/db_*/.gitkeep
+
+# ============================================
+# Diretórios Temporários e Logs
+# ============================================
+temp/
+tmp/
+*.tmp
+logs/
+*.log
+*.log.*
+
+# ============================================
+# IDEs e Editores
+# ============================================
+# VSCode / Cursor
+.vscode/
+.cursor/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.vim/
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# ============================================
+# Sistema Operacional
+# ============================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ============================================
+# Arquivos de Configuração Sensíveis
+# ============================================
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.yaml
+secrets.yml
+config.local.py
+
+# ============================================
+# Arquivos de Teste e Coverage
+# ============================================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+test_results.txt
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# ============================================
+# Arquivos de Build e Distribuição
+# ============================================
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.dylib
+*.dll
+
+# ============================================
+# Jupyter Notebooks
+# ============================================
+.ipynb_checkpoints
+*.ipynb
+
+# ============================================
+# Arquivos Específicos do Projeto
+# ============================================
+# Manter estrutura mas ignorar conteúdo grande
+ufdrs/unzip_ufdr/
+ufdrs/db_google/
+ufdrs/db_apple/
+
+# Arquivos de backup
+*.bak
+*.backup
+*~
+
+# Arquivos de cache
+.cache/
+*.cache
+
+# Arquivos de lock (se usar pip-tools, poetry, etc)
+Pipfile.lock
+poetry.lock
+requirements.lock
+
+# ============================================
+# Manter .gitkeep para estruturas de diretórios
+# ============================================
+!.gitkeep

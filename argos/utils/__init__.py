@@ -1,0 +1,4 @@
+"""
+Utilitários auxiliares
+"""
+
