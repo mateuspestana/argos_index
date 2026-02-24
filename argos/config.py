@@ -100,6 +100,12 @@ WATCH_URL = os.getenv("ARGOS_WATCH_URL", None)  # Opcional: URL remota
 BATCH_SIZE = int(os.getenv("ARGOS_BATCH_SIZE", "1000"))
 MAX_CONTEXT_LENGTH = int(os.getenv("ARGOS_MAX_CONTEXT", "500"))
 
+# Estabilização de arquivo (watcher): segundos com mesmo size/mtime para considerar estável
+FILE_STABLE_SECONDS = float(os.getenv("ARGOS_FILE_STABLE_SECONDS", "60"))
+# Retry em permission denied: número de tentativas e intervalos em segundos (crescente)
+PERMISSION_DENIED_RETRIES = int(os.getenv("ARGOS_PERMISSION_DENIED_RETRIES", "5"))
+RETRY_DELAYS = [2, 5, 10, 15, 20]  # segundos entre tentativas (até PERMISSION_DENIED_RETRIES)
+
 # Configurações de logging
 LOG_LEVEL = os.getenv("ARGOS_LOG_LEVEL", "INFO")
 LOG_FILE = Path(os.getenv("ARGOS_LOG_FILE", str(LOGS_DIR / "argos.log")))

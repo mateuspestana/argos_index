@@ -85,11 +85,11 @@ class TestDatabase(unittest.TestCase):
         self.db_manager.add_ufdr_file(ufdr_id, "test.ufdr")
         
         entries = [
-            (ufdr_id, "Texto 1", "path1.txt"),
-            (ufdr_id, "Texto 2", "path2.txt"),
-            (ufdr_id, "Texto 3", "path3.txt"),
+            (ufdr_id, "Texto 1", "path1.txt", "path1.txt", "/full/path1.txt"),
+            (ufdr_id, "Texto 2", "path2.txt", "path2.txt", "/full/path2.txt"),
+            (ufdr_id, "Texto 3", "path3.txt", "path3.txt", "/full/path3.txt"),
         ]
-        
+
         count = self.db_manager.batch_insert_text_entries(entries)
         self.assertEqual(count, 3)
         
@@ -107,10 +107,10 @@ class TestDatabase(unittest.TestCase):
         self.db_manager.add_ufdr_file(ufdr_id, "test.ufdr")
         
         hits = [
-            (ufdr_id, "EMAIL", "test@example.com", True, "contexto 1"),
-            (ufdr_id, "BR_CPF", "12345678900", False, "contexto 2"),
+            (ufdr_id, "EMAIL", "test@example.com", True, "contexto 1", "path1.txt"),
+            (ufdr_id, "BR_CPF", "12345678900", False, "contexto 2", "path2.txt"),
         ]
-        
+
         count = self.db_manager.batch_insert_regex_hits(hits)
         self.assertEqual(count, 2)
         

@@ -156,6 +156,8 @@ Todas as configurações podem ser definidas no arquivo `.env`:
 #### Processamento
 - `ARGOS_BATCH_SIZE`: Tamanho do batch para inserções (padrão: `1000`)
 - `ARGOS_MAX_CONTEXT`: Tamanho máximo do contexto (padrão: `500`)
+- `ARGOS_FILE_STABLE_SECONDS`: Segundos com mesmo tamanho/mtime para considerar arquivo estável (padrão: `60`)
+- `ARGOS_PERMISSION_DENIED_RETRIES`: Número de tentativas em caso de permission denied (padrão: `5`)
 
 #### Logging
 - `ARGOS_LOG_LEVEL`: Nível de log (padrão: `INFO`)
@@ -182,6 +184,19 @@ $env:ARGOS_DB_TYPE = "mysql"
 ```
 
 **Nota:** O arquivo `.env` tem prioridade sobre variáveis de ambiente do sistema.
+
+### Migração de schema (bancos existentes)
+
+Se você já possui um banco criado antes das colunas de caminho completo e cruzamentos, pode ser necessário adicionar as novas colunas manualmente. Em SQLite:
+
+```sql
+ALTER TABLE ufdr_files ADD COLUMN full_path TEXT;
+ALTER TABLE text_entries ADD COLUMN source_name TEXT;
+ALTER TABLE text_entries ADD COLUMN full_source_path TEXT;
+ALTER TABLE regex_hits ADD COLUMN source_path TEXT;
+```
+
+Novos processamentos passarão a preencher esses campos; registros antigos continuarão com `NULL` e a interface usa fallback (ex.: montar caminho a partir de `source` e `filename`).
 
 ## 📁 Estrutura do Projeto
 

@@ -87,18 +87,27 @@ class TestIntegration(unittest.TestCase):
             regex_engine = RegexEngine(patterns_file=self.patterns_file)
             all_hits = []
             
+            ufdr_full_path = str(self.ufdr_file.resolve())
             for text, source_path in extracted_texts:
                 hits = regex_engine.process_text(text, ufdr_id)
+                source_name = Path(source_path).name if source_path else None
+                full_source_path = str(Path(ufdr_full_path) / source_path) if source_path else ufdr_full_path
                 for type_name, value, validated, context in hits:
-                    all_hits.append((ufdr_id, type_name, value, validated, context))
-            
+                    all_hits.append((ufdr_id, type_name, value, validated, context, source_path))
+
             self.assertGreater(len(all_hits), 0)
-            
+
             # 4. Persiste no banco
-            self.db_manager.add_ufdr_file(ufdr_id, self.ufdr_file.name)
-            
-            # Prepara text_entries no formato correto: (ufdr_id, content, source_path)
-            text_entries = [(ufdr_id, text, source_path) for text, source_path in extracted_texts]
+            self.db_manager.add_ufdr_file(
+                ufdr_id, self.ufdr_file.name,
+                source=str(self.ufdr_file.parent),
+                full_path=ufdr_full_path
+            )
+
+            text_entries = [
+                (ufdr_id, text, source_path, Path(source_path).name if source_path else None, str(Path(ufdr_full_path) / source_path) if source_path else ufdr_full_path)
+                for text, source_path in extracted_texts
+            ]
             self.db_manager.batch_insert_text_entries(text_entries)
             self.db_manager.batch_insert_regex_hits(all_hits)
             

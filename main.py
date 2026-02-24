@@ -6,7 +6,8 @@ import logging
 import sys
 from pathlib import Path
 
-from argos.config import LOG_FILE, LOG_LEVEL, WATCH_DIRECTORY
+from argos.config import LOG_FILE, LOG_LEVEL, WATCH_DIRECTORY, FILE_STABLE_SECONDS
+from argos.utils.file_stability import wait_until_stable
 from argos.index.database import DatabaseManager
 from argos.index.extractor import UFDRExtractor
 from argos.index.text_extractor import TextExtractor
@@ -67,30 +68,33 @@ def process_ufdr(ufdr_path: Path):
             text_entries = []
             regex_hits = []
             
+            ufdr_full_path = str(ufdr_path.resolve())
             logger.info("Extraindo texto...")
             for text, source_path in text_extractor.extract_all():
                 if text and text.strip():
-                    text_entries.append((ufdr_id, text, source_path))
-            
+                    source_name = Path(source_path).name if source_path else None
+                    full_source_path = str(Path(ufdr_full_path) / source_path) if source_path else ufdr_full_path
+                    text_entries.append((ufdr_id, text, source_path, source_name, full_source_path))
+
             logger.info(f"Extraídas {len(text_entries)} entradas de texto")
-            
+
             # 3. Executa regex
             logger.info("Executando regex...")
-            for ufdr_id_entry, text, source_path in text_entries:
+            for ufdr_id_entry, text, source_path, source_name, full_source_path in text_entries:
                 hits = regex_engine.process_text(text, ufdr_id)
                 for type_name, value, validated, context in hits:
-                    regex_hits.append((ufdr_id, type_name, value, validated, context))
-            
+                    regex_hits.append((ufdr_id, type_name, value, validated, context, source_path))
+
             logger.info(f"Encontrados {len(regex_hits)} hits de regex")
-            
+
             # 4. Persiste no banco
             logger.info("Persistindo no banco de dados...")
-            
-            # Adiciona UFDR file
+
             db_manager.add_ufdr_file(
                 ufdr_id=ufdr_id,
                 filename=ufdr_path.name,
                 source=str(ufdr_path.parent),
+                full_path=ufdr_full_path,
                 status="processed"
             )
             
@@ -144,9 +148,10 @@ def process_ufdr(ufdr_path: Path):
                 ufdr_id=ufdr_id,
                 filename=ufdr_path.name,
                 source=str(ufdr_path.parent),
+                full_path=str(ufdr_path.resolve()),
                 status="error"
             )
-        except:
+        except Exception:
             pass
         
         raise
@@ -181,11 +186,12 @@ def main():
         logger.info("Modo contínuo ativado")
         
         def on_new_ufdr(ufdr_path: Path):
-            """Callback para novos UFDRs"""
+            """Callback para novos UFDRs. Nunca propaga exceção para o worker não interromper."""
             try:
                 process_ufdr(ufdr_path)
             except Exception as e:
-                logger.error(f"Erro no callback: {e}", exc_info=True)
+                logger.error(f"Erro no callback ao processar {ufdr_path}: {e}", exc_info=True)
+                # Não relançar: worker continua processando outros arquivos
         
         monitor.start_monitoring(on_new_ufdr, continuous=True)
         
@@ -210,6 +216,7 @@ def main():
         
         for ufdr_file in new_files:
             try:
+                wait_until_stable(ufdr_file, stable_seconds=FILE_STABLE_SECONDS)
                 process_ufdr(ufdr_file)
             except Exception as e:
                 logger.error(f"Erro ao processar {ufdr_file}: {e}", exc_info=True)
