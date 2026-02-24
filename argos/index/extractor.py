@@ -4,14 +4,24 @@ Extrator de arquivos UFDR - Trata UFDR como ZIP e extrai conteúdo
 
 import logging
 import shutil
+import time
 import zipfile
 from pathlib import Path
 from typing import Optional, Tuple
 
-from argos.config import TEMP_DIR
+from argos.config import TEMP_DIR, PERMISSION_DENIED_RETRIES, RETRY_DELAYS
 from argos.utils.hashing import calculate_file_hash
 
 logger = logging.getLogger(__name__)
+
+
+def _is_permission_denied(exc: BaseException) -> bool:
+    """Verifica se a exceção é permission denied (EACCES/EPERM)."""
+    if isinstance(exc, PermissionError):
+        return True
+    if isinstance(exc, OSError) and getattr(exc, "errno", None) in (13, 1):
+        return True
+    return False
 
 
 class UFDRExtractor:
@@ -45,24 +55,42 @@ class UFDRExtractor:
             shutil.rmtree(extract_dir)
         
         extract_dir.mkdir(parents=True, exist_ok=True)
-        
-        try:
-            # Tenta abrir como ZIP
-            with zipfile.ZipFile(ufdr_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_dir)
-            
-            logger.info(f"UFDR extraído: {ufdr_path.name} -> {extract_dir}")
-            return extract_dir
-        
-        except zipfile.BadZipFile:
-            logger.error(f"Arquivo não é um ZIP válido: {ufdr_path}")
-            raise ValueError(f"Arquivo UFDR inválido: {ufdr_path}")
-        except Exception as e:
-            logger.error(f"Erro ao extrair UFDR {ufdr_path}: {e}")
-            # Limpa diretório em caso de erro
-            if extract_dir.exists():
-                shutil.rmtree(extract_dir)
-            raise
+
+        last_error = None
+        delays = RETRY_DELAYS[:PERMISSION_DENIED_RETRIES]
+        for attempt in range(PERMISSION_DENIED_RETRIES):
+            try:
+                with zipfile.ZipFile(ufdr_path, 'r') as zip_ref:
+                    zip_ref.extractall(extract_dir)
+                logger.info(f"UFDR extraído: {ufdr_path.name} -> {extract_dir}")
+                return extract_dir
+            except zipfile.BadZipFile:
+                logger.error(f"Arquivo não é um ZIP válido: {ufdr_path}")
+                if extract_dir.exists():
+                    shutil.rmtree(extract_dir)
+                raise ValueError(f"Arquivo UFDR inválido: {ufdr_path}")
+            except (OSError, PermissionError) as e:
+                last_error = e
+                if _is_permission_denied(e) and attempt < PERMISSION_DENIED_RETRIES - 1:
+                    delay = delays[attempt] if attempt < len(delays) else delays[-1]
+                    logger.warning(
+                        "Permission denied ao abrir UFDR %s (tentativa %d/%d), aguardando %ds: %s",
+                        ufdr_path, attempt + 1, PERMISSION_DENIED_RETRIES, delay, e
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(f"Erro ao extrair UFDR {ufdr_path}: {e}")
+                    if extract_dir.exists():
+                        shutil.rmtree(extract_dir)
+                    raise
+            except Exception as e:
+                logger.error(f"Erro ao extrair UFDR {ufdr_path}: {e}")
+                if extract_dir.exists():
+                    shutil.rmtree(extract_dir)
+                raise
+        if extract_dir.exists():
+            shutil.rmtree(extract_dir)
+        raise last_error
     
     def find_database(self, extract_dir: Path) -> Optional[Path]:
         """

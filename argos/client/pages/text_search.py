@@ -2,6 +2,7 @@
 Página de busca textual
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -99,9 +100,13 @@ def main():
         
         st.markdown("---")
         for idx, result in enumerate(page_results, start=start_idx + 1):
-            with st.expander(f"Resultado {idx} - {result['source_path'] or 'N/A'}"):
-                st.write(f"**UFDR:** {result['ufdr_filename']}")
-                st.write(f"**Caminho:** {result['source_path'] or 'N/A'}")
+            expander_label = result.get('source_name') or result.get('source_path') or 'N/A'
+            with st.expander(f"Resultado {idx} - {expander_label}"):
+                st.write(f"**Nome do arquivo:** {result.get('source_name') or result.get('source_path') or 'N/A'}")
+                st.write(f"**Caminho completo do arquivo (interno):** {result.get('full_source_path') or result.get('source_path') or 'N/A'}")
+                st.write(f"**Caminho completo do UFDR:** {result.get('ufdr_full_path') or 'N/A'}")
+                st.write(f"**UFDR (nome):** {result['ufdr_filename']}")
+                st.write(f"**Caminho interno no UFDR:** {result['source_path'] or 'N/A'}")
                 st.write(f"**Data:** {result['indexed_at']}")
                 st.markdown("---")
                 st.text_area("Conteúdo:", result['content'], height=200, key=f"content_{idx}", disabled=True)
@@ -136,17 +141,22 @@ def search_text(
                 TextEntry.content.like(f"%{query}%")
             ).limit(1000).all()
         
-        # Formata resultados
         formatted_results = []
         for result in results:
             ufdr = session.query(UFDRFile).filter_by(id=result.ufdr_id).first()
+            ufdr_full_path = getattr(ufdr, 'full_path', None) if ufdr else None
+            if not ufdr_full_path and ufdr and ufdr.source and ufdr.filename:
+                ufdr_full_path = os.path.join(ufdr.source, ufdr.filename)
             formatted_results.append({
                 'content': result.content,
                 'source_path': result.source_path,
+                'source_name': getattr(result, 'source_name', None),
+                'full_source_path': getattr(result, 'full_source_path', None),
                 'ufdr_filename': ufdr.filename if ufdr else 'N/A',
+                'ufdr_full_path': ufdr_full_path or 'N/A',
                 'indexed_at': result.indexed_at.strftime("%Y-%m-%d %H:%M:%S") if result.indexed_at else 'N/A'
             })
-        
+
         return formatted_results
     finally:
         session.close()

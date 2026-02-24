@@ -3,6 +3,7 @@ Camada de persistência - Gerencia banco de dados SQLite ou MySQL
 """
 
 import logging
+import os
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
@@ -24,10 +25,11 @@ Base = declarative_base()
 class UFDRFile(Base):
     """Tabela de arquivos UFDR processados"""
     __tablename__ = "ufdr_files"
-    
+
     id = Column(CHAR(64), primary_key=True, comment="Hash SHA-256 do arquivo")
     filename = Column(Text, nullable=False, comment="Nome original do arquivo")
     source = Column(Text, nullable=True, comment="Origem do arquivo")
+    full_path = Column(Text, nullable=True, comment="Caminho completo do UFDR no disco")
     processed_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), comment="Timestamp de processamento")
     status = Column(String(20), nullable=False, default="processed", comment="Status: processed, error")
     
@@ -39,11 +41,13 @@ class UFDRFile(Base):
 class TextEntry(Base):
     """Tabela de entradas de texto extraídas"""
     __tablename__ = "text_entries"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     ufdr_id = Column(CHAR(64), ForeignKey("ufdr_files.id", ondelete="CASCADE"), nullable=False, index=True)
     content = Column(Text, nullable=False, comment="Texto bruto extraído")
     source_path = Column(Text, nullable=True, comment="Caminho interno no UFDR")
+    source_name = Column(Text, nullable=True, comment="Nome do arquivo (último segmento do source_path)")
+    full_source_path = Column(Text, nullable=True, comment="Caminho completo do arquivo interno (UFDR + source_path)")
     indexed_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), comment="Timestamp de indexação")
     
     # Relacionamentos
@@ -58,13 +62,14 @@ class TextEntry(Base):
 class RegexHit(Base):
     """Tabela de hits de regex encontrados"""
     __tablename__ = "regex_hits"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     ufdr_id = Column(CHAR(64), ForeignKey("ufdr_files.id", ondelete="CASCADE"), nullable=False, index=True)
     type = Column(String(100), nullable=False, index=True, comment="Tipo do padrão (ex: BR_CPF, EMAIL)")
     value = Column(Text, nullable=False, index=True, comment="Valor encontrado")
     validated = Column(Boolean, nullable=False, default=False, comment="Se passou por validação lógica")
     context = Column(Text, nullable=True, comment="Trecho de contexto próximo")
+    source_path = Column(Text, nullable=True, comment="Caminho interno no UFDR onde o hit foi encontrado")
     
     # Relacionamentos
     ufdr_file = relationship("UFDRFile", back_populates="regex_hits")
@@ -133,27 +138,34 @@ class DatabaseManager:
         ufdr_id: str,
         filename: str,
         source: Optional[str] = None,
+        full_path: Optional[str] = None,
         status: str = "processed"
     ) -> UFDRFile:
         """
         Adiciona ou atualiza um arquivo UFDR.
-        
+
         Args:
             ufdr_id: Hash SHA-256 do arquivo
             filename: Nome do arquivo
             source: Origem do arquivo
+            full_path: Caminho completo do UFDR no disco (opcional; se None, montado de source/filename)
             status: Status (processed, error)
-        
+
         Returns:
             UFDRFile: Objeto criado/atualizado
         """
+        if full_path is None and source:
+            full_path = os.path.join(source, filename)
+        elif full_path is None:
+            full_path = filename
         session = self.get_session()
         try:
             ufdr_file = session.query(UFDRFile).filter_by(id=ufdr_id).first()
-            
+
             if ufdr_file:
                 ufdr_file.filename = filename
                 ufdr_file.source = source
+                ufdr_file.full_path = full_path
                 ufdr_file.status = status
                 ufdr_file.processed_at = datetime.now(timezone.utc)
             else:
@@ -161,17 +173,17 @@ class DatabaseManager:
                     id=ufdr_id,
                     filename=filename,
                     source=source,
+                    full_path=full_path,
                     status=status
                 )
                 session.add(ufdr_file)
-            
+
             session.commit()
-            # Retorna uma cópia dos dados para evitar DetachedInstanceError
-            # O objeto original fica na sessão que será fechada
             return type('UFDRFileData', (), {
                 'id': ufdr_file.id,
                 'filename': ufdr_file.filename,
                 'source': ufdr_file.source,
+                'full_path': ufdr_file.full_path,
                 'status': ufdr_file.status,
                 'processed_at': ufdr_file.processed_at
             })()
@@ -184,30 +196,31 @@ class DatabaseManager:
     
     def batch_insert_text_entries(
         self,
-        entries: List[Tuple[str, str, Optional[str]]]
+        entries: List[Tuple[str, str, Optional[str], Optional[str], Optional[str]]]
     ) -> int:
         """
         Insere múltiplas entradas de texto em batch.
-        
+
         Args:
-            entries: Lista de tuplas (ufdr_id, content, source_path)
-        
+            entries: Lista de tuplas (ufdr_id, content, source_path, source_name, full_source_path)
+
         Returns:
             int: Número de entradas inseridas
         """
         if not entries:
             return 0
-        
+
         session = self.get_session()
         try:
-            # Cria objetos TextEntry - SQLAlchemy gerará IDs automaticamente
             text_entries = [
                 TextEntry(
                     ufdr_id=ufdr_id,
                     content=content,
-                    source_path=source_path
+                    source_path=source_path,
+                    source_name=source_name,
+                    full_source_path=full_source_path
                 )
-                for ufdr_id, content, source_path in entries
+                for ufdr_id, content, source_path, source_name, full_source_path in entries
             ]
             
             # Usa add_all que permite autoincrement funcionar corretamente
@@ -225,32 +238,32 @@ class DatabaseManager:
     
     def batch_insert_regex_hits(
         self,
-        hits: List[Tuple[str, str, str, bool, Optional[str]]]
+        hits: List[Tuple[str, str, str, bool, Optional[str], Optional[str]]]
     ) -> int:
         """
         Insere múltiplos regex hits em batch.
-        
+
         Args:
-            hits: Lista de tuplas (ufdr_id, type, value, validated, context)
-        
+            hits: Lista de tuplas (ufdr_id, type, value, validated, context, source_path)
+
         Returns:
             int: Número de hits inseridos
         """
         if not hits:
             return 0
-        
+
         session = self.get_session()
         try:
-            # Cria objetos RegexHit - SQLAlchemy gerará IDs automaticamente
             regex_hits = [
                 RegexHit(
                     ufdr_id=ufdr_id,
                     type=type_name,
                     value=value,
                     validated=validated,
-                    context=context
+                    context=context,
+                    source_path=source_path
                 )
-                for ufdr_id, type_name, value, validated, context in hits
+                for ufdr_id, type_name, value, validated, context, source_path in hits
             ]
             
             # Usa add_all que permite autoincrement funcionar corretamente

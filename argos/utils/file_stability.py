@@ -42,6 +42,8 @@ def wait_until_stable(
             stat = path.stat()
             size = stat.st_size
             mtime = stat.st_mtime
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Arquivo removido durante a espera: {path}")
         except OSError as e:
             logger.warning(f"Erro ao ler stat de {path}: {e}, aguardando...")
             time.sleep(check_interval)

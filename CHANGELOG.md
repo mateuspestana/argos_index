@@ -6,7 +6,16 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
-## [1.1.0] - Atual
+## [1.1.1] - Atual
+
+### Corrigido
+
+- **Estabilização de arquivo**: se o arquivo for removido durante a espera por estabilização (`wait_until_stable`), o código passava a entrar em loop infinito ao tratar o erro como genérico. Agora `FileNotFoundError` é relançada com mensagem clara (“Arquivo removido durante a espera”).
+- **Banco de dados**: import de `os` movido para o topo do módulo em `database.py`; lógica de `full_path` em `add_ufdr_file` quando `source` é `None` deixada explícita.
+
+---
+
+## [1.1.0]
 
 ### Adicionado
 

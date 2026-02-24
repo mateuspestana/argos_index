@@ -2,6 +2,7 @@
 Página de busca por entidades
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -164,18 +165,26 @@ def search_entities(
         
         results = query.limit(5000).all()
         
-        # Formata resultados
         formatted_results = []
         for result in results:
             ufdr = session.query(UFDRFile).filter_by(id=result.ufdr_id).first()
+            ufdr_full_path = getattr(ufdr, 'full_path', None) if ufdr else None
+            if not ufdr_full_path and ufdr and ufdr.source and ufdr.filename:
+                ufdr_full_path = os.path.join(ufdr.source, ufdr.filename)
+            source_path = getattr(result, 'source_path', None)
+            source_name = Path(source_path).name if source_path else 'N/A'
+            full_internal_path = str(Path(ufdr_full_path or '') / source_path) if (ufdr_full_path and source_path) else (source_path or 'N/A')
             formatted_results.append({
                 'Tipo': result.type,
                 'Valor': result.value,
                 'Validado': 'Sim' if result.validated else 'Não',
-                'UFDR': ufdr.filename if ufdr else 'N/A',
+                'UFDR (nome)': ufdr.filename if ufdr else 'N/A',
+                'Caminho completo do UFDR': ufdr_full_path or 'N/A',
+                'Nome do arquivo': source_name,
+                'Caminho completo do arquivo (interno)': full_internal_path,
                 'Contexto': result.context[:100] + "..." if result.context and len(result.context) > 100 else result.context or 'N/A'
             })
-        
+
         return formatted_results
     finally:
         session.close()

@@ -2,6 +2,7 @@
 Página de lista de UFDRs processados
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -96,11 +97,19 @@ def main():
         end_idx = start_idx + items_per_page
         page_ufdrs = ufdr_files[start_idx:end_idx]
         
-        # Cria DataFrame
+        # Caminho completo: full_path se existir, senão source/filename
+        def _ufdr_full_path(ufdr):
+            if getattr(ufdr, 'full_path', None):
+                return ufdr.full_path
+            if ufdr.source and ufdr.filename:
+                return os.path.join(ufdr.source, ufdr.filename)
+            return ufdr.filename or 'N/A'
+
         df = pd.DataFrame([{
             'ID (Hash)': ufdr.id[:16] + "...",
             'Nome do Arquivo': ufdr.filename,
             'Origem': ufdr.source or 'N/A',
+            'Caminho completo do UFDR': _ufdr_full_path(ufdr),
             'Status': ufdr.status,
             'Processado em': ufdr.processed_at.strftime("%Y-%m-%d %H:%M:%S") if ufdr.processed_at else 'N/A'
         } for ufdr in page_ufdrs])
