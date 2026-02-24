@@ -106,6 +106,10 @@ FILE_STABLE_SECONDS = float(os.getenv("ARGOS_FILE_STABLE_SECONDS", "60"))
 PERMISSION_DENIED_RETRIES = int(os.getenv("ARGOS_PERMISSION_DENIED_RETRIES", "5"))
 RETRY_DELAYS = [2, 5, 10, 15, 20]  # segundos entre tentativas (até PERMISSION_DENIED_RETRIES)
 
+# Número de worker threads que consomem a fila de UFDRs (processamento em paralelo)
+_num_workers = int(os.getenv("ARGOS_NUM_WORKERS", "5"))
+NUM_WORKERS = max(1, _num_workers)
+
 # Configurações de logging
 LOG_LEVEL = os.getenv("ARGOS_LOG_LEVEL", "INFO")
 LOG_FILE = Path(os.getenv("ARGOS_LOG_FILE", str(LOGS_DIR / "argos.log")))

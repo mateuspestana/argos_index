@@ -6,7 +6,15 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
-## [1.1.1] - Atual
+## [1.1.2] - Atual
+
+### Adicionado
+
+- **Múltiplos workers**: no modo contínuo, várias threads passam a consumir a mesma fila de UFDRs em paralelo. Padrão de 5 workers; configurável via `ARGOS_NUM_WORKERS` no `.env`. Valores menores que 1 são tratados como 1.
+
+---
+
+## [1.1.1]
 
 ### Corrigido
 

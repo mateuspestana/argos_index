@@ -156,6 +156,7 @@ Todas as configurações podem ser definidas no arquivo `.env`:
 #### Processamento
 - `ARGOS_BATCH_SIZE`: Tamanho do batch para inserções (padrão: `1000`)
 - `ARGOS_MAX_CONTEXT`: Tamanho máximo do contexto (padrão: `500`)
+- `ARGOS_NUM_WORKERS`: Número de worker threads que processam UFDRs em paralelo (padrão: `5`)
 - `ARGOS_FILE_STABLE_SECONDS`: Segundos com mesmo tamanho/mtime para considerar arquivo estável (padrão: `60`)
 - `ARGOS_PERMISSION_DENIED_RETRIES`: Número de tentativas em caso de permission denied (padrão: `5`)
 

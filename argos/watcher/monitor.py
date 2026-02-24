@@ -11,7 +11,7 @@ from typing import Optional
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
 
-from argos.config import WATCH_DIRECTORY, FILE_STABLE_SECONDS
+from argos.config import WATCH_DIRECTORY, FILE_STABLE_SECONDS, NUM_WORKERS
 from argos.watcher.detector import UFDRDetector
 from argos.index.database import DatabaseManager
 from argos.utils.file_stability import wait_until_stable
@@ -68,7 +68,7 @@ class UFDRMonitor:
         self.observer: Optional[Observer] = None
         self.callback = None
         self._pending_queue: Optional[queue.Queue] = None
-        self._worker_thread: Optional[threading.Thread] = None
+        self._worker_threads: list = []
         self._stop_worker = False
         logger.info(f"UFDRMonitor inicializado. Diretório: {self.watch_directory}")
 
@@ -106,9 +106,13 @@ class UFDRMonitor:
         if continuous:
             self._pending_queue = queue.Queue()
             self._stop_worker = False
-            self._worker_thread = threading.Thread(target=self._worker_loop, daemon=False)
-            self._worker_thread.start()
-            logger.info("Fila de processamento e worker thread iniciados")
+            self._worker_threads = [
+                threading.Thread(target=self._worker_loop, daemon=False, name=f"UFDRWorker-{i+1}")
+                for i in range(NUM_WORKERS)
+            ]
+            for t in self._worker_threads:
+                t.start()
+            logger.info("Fila de processamento e %d worker(s) iniciados", NUM_WORKERS)
             # Scan inicial: enfileira todos os .ufdr (sem abrir arquivo)
             logger.info("Fazendo scan inicial (enfileirando .ufdr existentes)...")
             self._scan_once_enqueue()
@@ -151,13 +155,15 @@ class UFDRMonitor:
                 logger.error(f"Erro ao processar {ufdr_file}: {e}")
 
     def stop_monitoring(self):
-        """Para o monitoramento e a thread worker."""
+        """Para o monitoramento e as threads worker."""
         self._stop_worker = True
         if self._pending_queue is not None:
-            self._pending_queue.put(None)
-        if self._worker_thread is not None and self._worker_thread.is_alive():
-            self._worker_thread.join(timeout=5.0)
-            self._worker_thread = None
+            for _ in range(len(self._worker_threads)):
+                self._pending_queue.put(None)
+        for t in self._worker_threads:
+            if t.is_alive():
+                t.join(timeout=5.0)
+        self._worker_threads = []
         if self.observer:
             self.observer.stop()
             self.observer.join()
