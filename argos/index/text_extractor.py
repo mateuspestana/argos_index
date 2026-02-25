@@ -1,12 +1,19 @@
 """
 Extrator de texto de arquivos UFDR - Suporta database.db e arquivos texto
+
+v1.1.3: Adicionado suporte a extração estruturada de dumps PostgreSQL custom (Cellebrite)
+        com relacionamento de SourceInfoNodes para obter caminhos de arquivos originais.
 """
 
 import json
 import logging
+import re
+import shutil
 import sqlite3
+import subprocess
+import tempfile
 from pathlib import Path
-from typing import Iterator, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 from argos.utils.text_utils import normalize_text, is_text_file
 
@@ -211,48 +218,395 @@ class TextExtractor:
     
     def _extract_from_postgresql_dump(self, db_path: Path) -> Iterator[Tuple[str, Optional[str]]]:
         """
-        Extrai texto de um PostgreSQL dump (best-effort).
-        
-        Nota: PostgreSQL dumps são complexos. Esta implementação
-        tenta extrair texto de forma básica.
-        
+        Extrai texto de um PostgreSQL dump custom (Cellebrite).
+
+        Usa pg_restore para extrair dados estruturados e relaciona com
+        SourceInfoNodes para obter os caminhos de arquivos originais.
+
         Args:
             db_path: Caminho para o dump
-        
+
+        Yields:
+            Tuplas (texto, source_path)
+        """
+        # Verifica se pg_restore está disponível
+        pg_restore_path = shutil.which('pg_restore')
+
+        if pg_restore_path:
+            logger.info("pg_restore encontrado, usando extração estruturada...")
+            yield from self._extract_postgresql_structured(db_path)
+        else:
+            logger.warning("pg_restore não encontrado, usando extração básica...")
+            yield from self._extract_postgresql_basic(db_path)
+
+    def _get_postgresql_schema(self, db_path: Path) -> Optional[str]:
+        """
+        Obtém o nome do schema do dump PostgreSQL.
+
+        Args:
+            db_path: Caminho para o dump
+
+        Returns:
+            Nome do schema ou None
+        """
+        try:
+            result = subprocess.run(
+                ['pg_restore', '-l', str(db_path)],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            # Procura por linhas SCHEMA
+            for line in result.stdout.split('\n'):
+                if 'SCHEMA' in line and 'device_' in line:
+                    # Formato: "9; 2615 614635 SCHEMA - device_xxx postgres"
+                    match = re.search(r'SCHEMA\s+-\s+(device_[a-f0-9-]+)', line)
+                    if match:
+                        return match.group(1)
+
+            return None
+        except Exception as e:
+            logger.debug(f"Erro ao obter schema: {e}")
+            return None
+
+    def _extract_source_info_map(self, db_path: Path, schema: str) -> Dict[str, str]:
+        """
+        Extrai mapa de SourceInfoDtoId -> FilePath da tabela SourceInfoNodes.
+
+        Args:
+            db_path: Caminho para o dump
+            schema: Nome do schema
+
+        Returns:
+            Dicionário {source_info_id: file_path}
+        """
+        source_map = {}
+
+        try:
+            result = subprocess.run(
+                ['pg_restore', '-f', '/dev/stdout', '-a',
+                 f'--schema={schema}', '-t', 'SourceInfoNodes', str(db_path)],
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+
+            in_copy = False
+            for line in result.stdout.split('\n'):
+                if line.startswith('COPY') and 'SourceInfoNodes' in line:
+                    in_copy = True
+                    continue
+                if in_copy:
+                    if line.startswith('\\.') or line.startswith('--'):
+                        in_copy = False
+                        continue
+                    if not line.strip():
+                        continue
+
+                    # Formato: Id\tFileName\tFilePath\t...\tSourceInfoDtoId
+                    parts = line.split('\t')
+                    if len(parts) >= 10:
+                        file_name = parts[1]  # FileName
+                        file_path = parts[2]  # FilePath
+                        source_info_dto_id = parts[9]  # SourceInfoDtoId (última coluna)
+
+                        if source_info_dto_id and source_info_dto_id != '\\N':
+                            # Usa o nome do arquivo ou o caminho completo
+                            path_to_use = file_name if file_name else file_path
+                            if path_to_use:
+                                source_map[source_info_dto_id] = path_to_use
+
+            logger.info(f"Extraídas {len(source_map)} entradas de SourceInfoNodes")
+
+        except subprocess.TimeoutExpired:
+            logger.warning("Timeout ao extrair SourceInfoNodes")
+        except Exception as e:
+            logger.warning(f"Erro ao extrair SourceInfoNodes: {e}")
+
+        return source_map
+
+    def _get_extraction_name(self, db_path: Path, schema: str) -> Optional[str]:
+        """
+        Obtém o nome da extração/dispositivo da tabela ExtractionInfos.
+
+        Args:
+            db_path: Caminho para o dump
+            schema: Nome do schema
+
+        Returns:
+            Nome da extração ou None
+        """
+        try:
+            result = subprocess.run(
+                ['pg_restore', '-f', '/dev/stdout', '-a',
+                 f'--schema={schema}', '-t', 'ExtractionInfos', str(db_path)],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            in_copy = False
+            for line in result.stdout.split('\n'):
+                if line.startswith('COPY') and 'ExtractionInfos' in line:
+                    in_copy = True
+                    continue
+                if in_copy:
+                    if line.startswith('\\.') or not line.strip():
+                        continue
+                    parts = line.split('\t')
+                    if len(parts) > 8:
+                        # DeviceName está na posição 8
+                        device_name = parts[8]
+                        if device_name and device_name != '\\N':
+                            return device_name
+                    break
+
+        except Exception as e:
+            logger.debug(f"Erro ao obter nome da extração: {e}")
+
+        return None
+
+    def _get_tables_with_text(self, db_path: Path, schema: str) -> List[Tuple[str, List[str], Optional[int]]]:
+        """
+        Lista tabelas que têm colunas de texto e identifica posição de SourceInfoId.
+
+        Args:
+            db_path: Caminho para o dump
+            schema: Nome do schema
+
+        Returns:
+            Lista de (table_name, text_columns, source_info_id_position)
+        """
+        tables = []
+
+        try:
+            result = subprocess.run(
+                ['pg_restore', '-l', str(db_path)],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            # Extrai nomes de tabelas com dados
+            table_names = set()
+            for line in result.stdout.split('\n'):
+                if 'TABLE DATA' in line and schema in line:
+                    # Formato: "5684; 0 616151 TABLE DATA device_xxx TableName postgres"
+                    parts = line.split()
+                    for i, part in enumerate(parts):
+                        if part == 'DATA' and i + 2 < len(parts):
+                            table_name = parts[i + 2]
+                            if table_name != 'postgres':
+                                table_names.add(table_name)
+
+            # Para cada tabela, obtém estrutura e identifica colunas de texto
+            for table_name in sorted(table_names):
+                try:
+                    result = subprocess.run(
+                        ['pg_restore', '-f', '/dev/stdout',
+                         f'--schema={schema}', '-t', table_name, str(db_path)],
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+
+                    # Procura CREATE TABLE para identificar colunas
+                    text_columns = []
+                    source_info_pos = None
+                    col_index = 0
+
+                    in_create = False
+                    for line in result.stdout.split('\n'):
+                        if 'CREATE TABLE' in line:
+                            in_create = True
+                            continue
+                        if in_create:
+                            if line.strip().startswith(');'):
+                                in_create = False
+                                break
+
+                            # Parse coluna
+                            line_stripped = line.strip().rstrip(',')
+                            if line_stripped.startswith('"'):
+                                col_match = re.match(r'"([^"]+)"\s+(\w+)', line_stripped)
+                                if col_match:
+                                    col_name = col_match.group(1)
+                                    col_type = col_match.group(2).lower()
+
+                                    if col_name == 'SourceInfoId':
+                                        source_info_pos = col_index
+
+                                    if col_type == 'text':
+                                        text_columns.append((col_name, col_index))
+
+                                    col_index += 1
+
+                    if text_columns:
+                        tables.append((table_name, text_columns, source_info_pos))
+
+                except Exception as e:
+                    logger.debug(f"Erro ao analisar tabela {table_name}: {e}")
+                    continue
+
+        except Exception as e:
+            logger.warning(f"Erro ao listar tabelas: {e}")
+
+        return tables
+
+    def _extract_postgresql_structured(self, db_path: Path) -> Iterator[Tuple[str, Optional[str]]]:
+        """
+        Extrai dados estruturados de dump PostgreSQL usando pg_restore.
+
+        Args:
+            db_path: Caminho para o dump
+
+        Yields:
+            Tuplas (texto, source_path)
+        """
+        # Obtém schema
+        schema = self._get_postgresql_schema(db_path)
+        if not schema:
+            logger.warning("Schema não encontrado, usando extração básica")
+            yield from self._extract_postgresql_basic(db_path)
+            return
+
+        logger.info(f"Schema encontrado: {schema}")
+
+        # Obtém nome da extração para contexto
+        extraction_name = self._get_extraction_name(db_path, schema)
+        if extraction_name:
+            logger.info(f"Extração identificada: {extraction_name}")
+
+        # Extrai mapa de SourceInfoNodes
+        source_map = self._extract_source_info_map(db_path, schema)
+
+        # Obtém tabelas com colunas de texto
+        tables = self._get_tables_with_text(db_path, schema)
+        logger.info(f"Encontradas {len(tables)} tabelas com colunas de texto")
+
+        extracted_count = 0
+        source_info_resolved = 0
+
+        for table_name, text_columns, source_info_pos in tables:
+            try:
+                result = subprocess.run(
+                    ['pg_restore', '-f', '/dev/stdout', '-a',
+                     f'--schema={schema}', '-t', table_name, str(db_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+
+                in_copy = False
+                for line in result.stdout.split('\n'):
+                    if line.startswith('COPY') and table_name in line:
+                        in_copy = True
+                        continue
+                    if in_copy:
+                        if line.startswith('\\.') or line.startswith('--'):
+                            in_copy = False
+                            continue
+                        if not line.strip():
+                            continue
+
+                        parts = line.split('\t')
+
+                        # Determina source_path
+                        # Formato padrão: "database.db:NomeTabela" para indicar origem do dump
+                        source_path = f"database.db:{table_name}"
+                        resolved_from_map = False
+
+                        # Tenta obter do SourceInfoNodes
+                        if source_info_pos is not None and source_info_pos < len(parts):
+                            source_info_id = parts[source_info_pos]
+                            if source_info_id and source_info_id != '\\N':
+                                if source_info_id in source_map:
+                                    source_path = source_map[source_info_id]
+                                    resolved_from_map = True
+                                    source_info_resolved += 1
+
+                        # Extrai valores das colunas de texto
+                        for col_name, col_index in text_columns:
+                            if col_index < len(parts):
+                                value = parts[col_index]
+                                if value and value != '\\N':
+                                    # Decodifica escapes do PostgreSQL
+                                    text = self._decode_pg_text(value)
+                                    if text and text.strip():
+                                        extracted_count += 1
+                                        yield (text, source_path)
+
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Timeout ao extrair tabela {table_name}")
+            except Exception as e:
+                logger.debug(f"Erro ao extrair tabela {table_name}: {e}")
+                continue
+
+        logger.info(f"Extraídas {extracted_count} entradas do dump PostgreSQL estruturado")
+        if source_info_resolved > 0:
+            logger.info(f"Resolvidos {source_info_resolved} source_paths via SourceInfoNodes")
+
+    def _decode_pg_text(self, text: str) -> str:
+        """
+        Decodifica escapes de texto do PostgreSQL.
+
+        Args:
+            text: Texto com escapes PostgreSQL
+
+        Returns:
+            Texto decodificado
+        """
+        if not text:
+            return text
+
+        # Substitui escapes comuns
+        text = text.replace('\\n', '\n')
+        text = text.replace('\\t', '\t')
+        text = text.replace('\\r', '\r')
+        text = text.replace('\\\\', '\\')
+
+        return text
+
+    def _extract_postgresql_basic(self, db_path: Path) -> Iterator[Tuple[str, Optional[str]]]:
+        """
+        Extração básica de dump PostgreSQL (fallback quando pg_restore não está disponível).
+
+        Args:
+            db_path: Caminho para o dump
+
         Yields:
             Tuplas (texto, source_path)
         """
         try:
             with open(db_path, 'rb') as f:
                 content = f.read()
-            
+
             # Normaliza o conteúdo
             text = normalize_text(content)
-            
+
             # Tenta extrair dados INSERT (formato comum em dumps)
-            import re
             insert_pattern = r"INSERT INTO\s+\w+\s+.*?VALUES\s*\((.*?)\);"
-            
-            matches = re.finditer(insert_pattern, text, re.IGNORECASE | re.DOTALL)
+
+            matches = list(re.finditer(insert_pattern, text, re.IGNORECASE | re.DOTALL))
             for match in matches:
                 values_text = match.group(1)
                 # Remove aspas e extrai valores
                 cleaned = re.sub(r"['\"]", '', values_text)
                 if cleaned.strip():
                     yield (cleaned, "postgresql_dump")
-            
+
             # Se não encontrou INSERTs, retorna o texto completo (limitado)
-            if not any(True for _ in matches):
+            if not matches:
                 # Limita tamanho para evitar textos gigantes
                 if len(text) > 1000000:  # 1MB
                     text = text[:1000000]
                 if text.strip():
                     yield (text, "postgresql_dump")
-        
+
         except Exception as e:
             logger.error(f"Erro ao extrair de PostgreSQL dump {db_path}: {e}")
-            raise  # Re-raise para trigger fallback para arquivos
-            raise  # Re-raise para trigger fallback para arquivos
+            raise
     
     def _extract_from_files(self) -> Iterator[Tuple[str, Optional[str]]]:
         """

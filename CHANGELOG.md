@@ -6,7 +6,19 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
-## [1.1.2] - Atual
+## [1.1.3] - Atual
+
+### Adicionado
+
+- **Extração estruturada de dumps PostgreSQL (Cellebrite)**: quando o `database.db` é um dump PostgreSQL custom, usa `pg_restore` para extrair dados de forma estruturada.
+- **Relacionamento com SourceInfoNodes**: extrai a tabela `SourceInfoNodes` para relacionar dados com arquivos originais quando `SourceInfoId` está disponível.
+- **Novo formato de source_path**: dados do dump PostgreSQL agora usam formato `database.db:NomeTabela` (ex: `database.db:Coordinates`, `database.db:Contacts`) ao invés do genérico `postgresql_dump`.
+- **Identificação de extração**: obtém nome do dispositivo/extração via tabela `ExtractionInfos` para contexto.
+- **Fallback robusto**: quando `pg_restore` não está disponível, usa extração básica mantendo compatibilidade.
+
+---
+
+## [1.1.2]
 
 ### Adicionado
 
