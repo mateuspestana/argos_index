@@ -41,8 +41,8 @@ class UFDRDetector:
         
         new_files = []
         
-        # Procura por arquivos .ufdr
-        for ufdr_file in directory.glob("*.ufdr"):
+        # Procura por arquivos .ufdr (diretório e subpastas)
+        for ufdr_file in directory.glob("**/*.ufdr"):
             if not ufdr_file.is_file():
                 continue
             

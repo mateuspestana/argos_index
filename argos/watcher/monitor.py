@@ -118,19 +118,19 @@ class UFDRMonitor:
             self._scan_once_enqueue()
             event_handler = UFDRFileHandler(self._pending_queue)
             self.observer = Observer()
-            self.observer.schedule(event_handler, str(self.watch_directory), recursive=False)
+            self.observer.schedule(event_handler, str(self.watch_directory), recursive=True)
             self.observer.start()
             logger.info(f"Monitoramento contínuo iniciado em: {self.watch_directory}")
         else:
             self._scan_once(callback)
 
     def _scan_once_enqueue(self):
-        """Enfileira todos os arquivos .ufdr do diretório (sem abrir). Usado no modo contínuo."""
+        """Enfileira todos os arquivos .ufdr do diretório e subpastas (sem abrir). Usado no modo contínuo."""
         if not self.watch_directory.exists():
             logger.warning(f"Diretório não existe: {self.watch_directory}")
             return
         count = 0
-        for p in self.watch_directory.glob("*.ufdr"):
+        for p in self.watch_directory.glob("**/*.ufdr"):
             if p.is_file():
                 self._pending_queue.put(p)
                 count += 1

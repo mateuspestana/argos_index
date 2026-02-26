@@ -6,7 +6,15 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
-## [1.3.0] - Atual
+## [1.3.1] - Atual
+
+### Alterado
+
+- **Watcher/worker e subpastas**: o sistema passou a considerar arquivos `.ufdr` dentro de subpastas do diretório monitorado. O observer do watchdog usa `recursive=True`; o scan inicial (modo contínuo) e a varredura do detector (modo once) usam `glob("**/*.ufdr")` em vez de `glob("*.ufdr")`. Arquivos em qualquer nível abaixo do diretório configurado em `ARGOS_WATCH_DIR` são enfileirados e processados.
+
+---
+
+## [1.3.0]
 
 ### Adicionado
 
