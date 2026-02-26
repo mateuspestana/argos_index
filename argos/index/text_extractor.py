@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
+from argos.utils.hashing import calculate_file_md5
 from argos.utils.text_utils import normalize_text, is_text_file
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ class TextExtractor:
         """
         self.extract_dir = extract_dir
     
-    def extract_all(self) -> Iterator[Tuple[str, Optional[str]]]:
+    def extract_all(self) -> Iterator[Tuple[str, Optional[str], Optional[str]]]:
         """
         Extrai todo o texto disponível do UFDR.
         
@@ -40,7 +41,7 @@ class TextExtractor:
         percorre arquivos texto recursivamente.
         
         Yields:
-            Tuplas (texto, source_path)
+            Tuplas (texto, source_path, file_md5)
         """
         # Procura por database.db
         db_paths = [
@@ -53,23 +54,27 @@ class TextExtractor:
             if db_path.exists():
                 logger.info(f"Encontrado database.db: {db_path}")
                 try:
-                    # Tenta extrair do database
+                    try:
+                        db_md5 = calculate_file_md5(db_path)
+                    except Exception as e:
+                        logger.warning(f"Erro ao calcular MD5 de {db_path}: {e}")
+                        db_md5 = None
+
                     extracted_count = 0
                     for text, source in self._extract_from_database(db_path):
                         extracted_count += 1
-                        yield (text, source)
+                        yield (text, source, db_md5)
                     
                     if extracted_count > 0:
                         logger.info(f"Extraídas {extracted_count} entradas do database.db")
                         database_extracted = True
-                        break  # Se conseguiu extrair, não precisa tentar outros
+                        break
                     else:
                         logger.warning(f"Database.db encontrado mas nenhuma entrada extraída, tentando fallback para arquivos...")
                 except Exception as e:
                     logger.error(f"Erro ao extrair do database.db {db_path}: {e}")
                     logger.info("Fazendo fallback para extração de arquivos...")
         
-        # Se não conseguiu extrair do database, percorre arquivos
         if not database_extracted:
             logger.info("Extraindo texto de arquivos...")
             yield from self._extract_from_files()
@@ -608,30 +613,21 @@ class TextExtractor:
             logger.error(f"Erro ao extrair de PostgreSQL dump {db_path}: {e}")
             raise
     
-    def _extract_from_files(self) -> Iterator[Tuple[str, Optional[str]]]:
+    def _extract_from_files(self) -> Iterator[Tuple[str, Optional[str], Optional[str]]]:
         """
         Percorre arquivos recursivamente e extrai texto.
         
         Yields:
-            Tuplas (texto, source_path)
+            Tuplas (texto, source_path, file_md5)
         """
-        # Extensões de arquivo texto suportadas
         text_extensions = {
-            # Texto puro
             '.txt', '.log', '.md', '.markdown', '.rst',
-            # Estrutura de dados
             '.json', '.xml', '.yaml', '.yml', '.toml',
-            # Dados tabulares
             '.csv', '.tsv',
-            # Email
             '.eml', '.msg',
-            # Web
             '.html', '.htm', '.xhtml',
-            # Contatos
             '.vcf', '.vcs',
-            # Outros
             '.ini', '.cfg', '.conf', '.properties', '.env',
-            # Código (pode conter dados)
             '.py', '.js', '.java', '.cpp', '.c', '.h', '.php', '.rb', '.go',
             '.sql', '.sh', '.bash', '.zsh', '.ps1', '.bat', '.cmd'
         }
@@ -641,7 +637,6 @@ class TextExtractor:
             if not file_path.is_file():
                 continue
             
-            # Ignora arquivos muito grandes (acima de 50MB)
             try:
                 if file_path.stat().st_size > 50 * 1024 * 1024:
                     logger.debug(f"Ignorando arquivo muito grande: {file_path.name} ({file_path.stat().st_size / 1024 / 1024:.1f}MB)")
@@ -649,15 +644,18 @@ class TextExtractor:
             except Exception:
                 pass
             
-            # Verifica extensão ou se é arquivo texto conhecido
             if file_path.suffix.lower() in text_extensions or is_text_file(str(file_path)):
                 try:
                     text = self._read_text_file(file_path)
                     if text and text.strip():
-                        # Caminho relativo ao extract_dir
                         source_path = str(file_path.relative_to(self.extract_dir))
+                        try:
+                            file_md5 = calculate_file_md5(file_path)
+                        except Exception as e:
+                            logger.warning(f"Erro ao calcular MD5 de {file_path}: {e}")
+                            file_md5 = None
                         extracted_count += 1
-                        yield (text, source_path)
+                        yield (text, source_path, file_md5)
                 except Exception as e:
                     logger.debug(f"Erro ao ler arquivo {file_path}: {e}")
                     continue

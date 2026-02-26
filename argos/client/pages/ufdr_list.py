@@ -108,6 +108,8 @@ def main():
         df = pd.DataFrame([{
             'ID (Hash)': ufdr.id[:16] + "...",
             'Nome do Arquivo': ufdr.filename,
+            'Tipo de Extração': getattr(ufdr, 'extraction_type', None) or 'Desconhecido',
+            'Versão Cellebrite': getattr(ufdr, 'cellebrite_version', None) or 'N/A',
             'Origem': ufdr.source or 'N/A',
             'Caminho completo do UFDR': _ufdr_full_path(ufdr),
             'Status': ufdr.status,

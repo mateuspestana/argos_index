@@ -103,6 +103,7 @@ def main():
             expander_label = result.get('source_name') or result.get('source_path') or 'N/A'
             with st.expander(f"Resultado {idx} - {expander_label}"):
                 st.write(f"**Nome do arquivo:** {result.get('source_name') or result.get('source_path') or 'N/A'}")
+                st.write(f"**MD5 do arquivo:** {result.get('file_md5', 'N/A')}")
                 st.write(f"**Caminho completo do arquivo (interno):** {result.get('full_source_path') or result.get('source_path') or 'N/A'}")
                 st.write(f"**Caminho completo do UFDR:** {result.get('ufdr_full_path') or 'N/A'}")
                 st.write(f"**UFDR (nome):** {result['ufdr_filename']}")
@@ -152,6 +153,7 @@ def search_text(
                 'source_path': result.source_path,
                 'source_name': getattr(result, 'source_name', None),
                 'full_source_path': getattr(result, 'full_source_path', None),
+                'file_md5': getattr(result, 'file_md5', None) or 'N/A',
                 'ufdr_filename': ufdr.filename if ufdr else 'N/A',
                 'ufdr_full_path': ufdr_full_path or 'N/A',
                 'indexed_at': result.indexed_at.strftime("%Y-%m-%d %H:%M:%S") if result.indexed_at else 'N/A'

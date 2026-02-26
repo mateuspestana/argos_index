@@ -55,14 +55,34 @@ class TestDatabase(unittest.TestCase):
             status="processed"
         )
         
-        # Acessa atributos antes que a sessão seja fechada (se ainda estiver aberta)
-        # Ou verifica diretamente no banco
         session = self.db_manager.get_session()
         try:
             saved = session.query(UFDRFile).filter_by(id=ufdr_id).first()
             self.assertIsNotNone(saved)
             self.assertEqual(saved.id, ufdr_id)
             self.assertEqual(saved.filename, filename)
+        finally:
+            session.close()
+    
+    def test_add_ufdr_file_with_metadata(self):
+        """Testa adição de UFDR com metadados de extração e versão Cellebrite"""
+        ufdr_id = "e" * 64
+        
+        self.db_manager.add_ufdr_file(
+            ufdr_id=ufdr_id,
+            filename="apple_extract.ufdr",
+            source="/test/path",
+            extraction_type="Apple",
+            cellebrite_version="7.58.0.24",
+            status="processed"
+        )
+        
+        session = self.db_manager.get_session()
+        try:
+            saved = session.query(UFDRFile).filter_by(id=ufdr_id).first()
+            self.assertIsNotNone(saved)
+            self.assertEqual(saved.extraction_type, "Apple")
+            self.assertEqual(saved.cellebrite_version, "7.58.0.24")
         finally:
             session.close()
     
@@ -80,45 +100,50 @@ class TestDatabase(unittest.TestCase):
         self.assertTrue(self.db_manager.is_ufdr_processed(ufdr_id))
     
     def test_batch_insert_text_entries(self):
-        """Testa inserção em batch de text entries"""
+        """Testa inserção em batch de text entries com file_md5"""
         ufdr_id = "c" * 64
         self.db_manager.add_ufdr_file(ufdr_id, "test.ufdr")
         
         entries = [
-            (ufdr_id, "Texto 1", "path1.txt", "path1.txt", "/full/path1.txt"),
-            (ufdr_id, "Texto 2", "path2.txt", "path2.txt", "/full/path2.txt"),
-            (ufdr_id, "Texto 3", "path3.txt", "path3.txt", "/full/path3.txt"),
+            (ufdr_id, "Texto 1", "path1.txt", "path1.txt", "/full/path1.txt", "a" * 32),
+            (ufdr_id, "Texto 2", "path2.txt", "path2.txt", "/full/path2.txt", "b" * 32),
+            (ufdr_id, "Texto 3", "path3.txt", "path3.txt", "/full/path3.txt", None),
         ]
 
         count = self.db_manager.batch_insert_text_entries(entries)
         self.assertEqual(count, 3)
         
-        # Verifica se foram inseridos
         session = self.db_manager.get_session()
         try:
             saved = session.query(TextEntry).filter_by(ufdr_id=ufdr_id).all()
             self.assertEqual(len(saved), 3)
+            md5s = {e.source_name: e.file_md5 for e in saved}
+            self.assertEqual(md5s["path1.txt"], "a" * 32)
+            self.assertEqual(md5s["path2.txt"], "b" * 32)
+            self.assertIsNone(md5s["path3.txt"])
         finally:
             session.close()
     
     def test_batch_insert_regex_hits(self):
-        """Testa inserção em batch de regex hits"""
+        """Testa inserção em batch de regex hits com file_md5"""
         ufdr_id = "d" * 64
         self.db_manager.add_ufdr_file(ufdr_id, "test.ufdr")
         
         hits = [
-            (ufdr_id, "EMAIL", "test@example.com", True, "contexto 1", "path1.txt"),
-            (ufdr_id, "BR_CPF", "12345678900", False, "contexto 2", "path2.txt"),
+            (ufdr_id, "EMAIL", "test@example.com", True, "contexto 1", "path1.txt", "a" * 32),
+            (ufdr_id, "BR_CPF", "12345678900", False, "contexto 2", "path2.txt", None),
         ]
 
         count = self.db_manager.batch_insert_regex_hits(hits)
         self.assertEqual(count, 2)
         
-        # Verifica se foram inseridos
         session = self.db_manager.get_session()
         try:
             saved = session.query(RegexHit).filter_by(ufdr_id=ufdr_id).all()
             self.assertEqual(len(saved), 2)
+            md5s = {h.type: h.file_md5 for h in saved}
+            self.assertEqual(md5s["EMAIL"], "a" * 32)
+            self.assertIsNone(md5s["BR_CPF"])
         finally:
             session.close()
 

@@ -191,10 +191,17 @@ $env:ARGOS_DB_TYPE = "mysql"
 Se você já possui um banco criado antes das colunas de caminho completo e cruzamentos, pode ser necessário adicionar as novas colunas manualmente. Em SQLite:
 
 ```sql
+-- v1.1.0
 ALTER TABLE ufdr_files ADD COLUMN full_path TEXT;
 ALTER TABLE text_entries ADD COLUMN source_name TEXT;
 ALTER TABLE text_entries ADD COLUMN full_source_path TEXT;
 ALTER TABLE regex_hits ADD COLUMN source_path TEXT;
+
+-- v1.2.0
+ALTER TABLE ufdr_files ADD COLUMN extraction_type VARCHAR(50);
+ALTER TABLE ufdr_files ADD COLUMN cellebrite_version VARCHAR(50);
+ALTER TABLE text_entries ADD COLUMN file_md5 CHAR(32);
+ALTER TABLE regex_hits ADD COLUMN file_md5 CHAR(32);
 ```
 
 Novos processamentos passarão a preencher esses campos; registros antigos continuarão com `NULL` e a interface usa fallback (ex.: montar caminho a partir de `source` e `filename`).
@@ -227,13 +234,14 @@ ufdr_reader/
 
 - Busca livre em todo o corpus indexado
 - Filtros por UFDR específico
-- Exibição de contexto e origem
+- Exibição de contexto, origem e MD5 do arquivo interno
 
 ### Busca por Entidades
 
 - Filtro por tipo de entidade (CPF, email, crypto, etc.)
 - Filtro por valor específico
 - Filtro por validação (válidos/inválidos)
+- MD5 do arquivo interno exibido em cada resultado
 - Exportação para CSV
 
 ### Estatísticas
@@ -243,10 +251,13 @@ ufdr_reader/
 - Total de hits de regex
 - Distribuição por tipo de entidade
 - Estatísticas de validação
+- Contagem de UFDRs por tipo de extração (Apple, Google, Desconhecido)
 
 ### UFDRs Processados
 
 - Lista completa de arquivos processados
+- Tipo de extração (Apple / Google (Android) / Desconhecido)
+- Versão do Cellebrite UFED utilizada
 - Informações de status e data de processamento
 
 ## 🛠️ Desenvolvimento

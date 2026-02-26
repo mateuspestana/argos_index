@@ -6,7 +6,38 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
-## [1.1.3] - Atual
+## [1.2.0] - Atual
+
+### Adicionado
+
+- **Hash MD5 por arquivo interno**: cada arquivo processado dentro do UFDR gera hash MD5. Para entradas extraídas de `database.db`, o MD5 é do `database.db`; para entradas extraídas de arquivos texto, o MD5 é do arquivo individual. O MD5 está presente nas tabelas `text_entries` e `regex_hits` e é exibido nas páginas de busca textual, busca por entidades e demais interfaces do client.
+- **Tipo de extração (Apple/Google)**: cada UFDR processado indica se a extração é de um dispositivo Apple (iOS) ou Google (Android), com base nos metadados do UFDR (`report.xml`, tabelas `ExtractionInfos`/`DeviceInfos` do `database.db`, nomes de dispositivo). Exibido na lista de UFDRs processados e nas estatísticas.
+- **Versão do Cellebrite**: cada UFDR exibe a versão do Cellebrite UFED utilizada na extração, quando disponível nos metadados internos. Exibido na lista de UFDRs processados.
+- **Novo módulo `metadata_extractor.py`**: extrator dedicado de metadados de UFDR (tipo de extração + versão Cellebrite). Analisa `report.xml`, banco SQLite interno, dump PostgreSQL e estrutura de diretórios.
+- **Estatísticas de tipo de extração**: página de Estatísticas exibe contagem de UFDRs por tipo de extração (Apple, Google (Android), Desconhecido).
+
+### Alterado
+
+- **`TextExtractor.extract_all()`**: agora retorna 3-tuplas `(texto, source_path, file_md5)` ao invés de 2-tuplas.
+- **`batch_insert_text_entries()`**: aceita 6-tuplas `(ufdr_id, content, source_path, source_name, full_source_path, file_md5)`.
+- **`batch_insert_regex_hits()`**: aceita 7-tuplas `(ufdr_id, type, value, validated, context, source_path, file_md5)`.
+- **`add_ufdr_file()`**: aceita novos parâmetros `extraction_type` e `cellebrite_version`.
+- **Pipeline de processamento**: extrai metadados e calcula MD5 por arquivo interno antes da persistência.
+
+### Migração
+
+- Bancos criados antes da 1.2.0 precisam das novas colunas. Em SQLite, execute:
+  ```sql
+  ALTER TABLE ufdr_files ADD COLUMN extraction_type VARCHAR(50);
+  ALTER TABLE ufdr_files ADD COLUMN cellebrite_version VARCHAR(50);
+  ALTER TABLE text_entries ADD COLUMN file_md5 CHAR(32);
+  ALTER TABLE regex_hits ADD COLUMN file_md5 CHAR(32);
+  ```
+- Registros antigos terão `NULL` nessas colunas; a interface usa fallback ("N/A").
+
+---
+
+## [1.1.3]
 
 ### Adicionado
 

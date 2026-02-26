@@ -95,6 +95,25 @@ def main():
         col1.metric("Documentos Válidos", validated_count)
         col2.metric("Documentos Inválidos", invalidated_count)
         
+        # Estatísticas por tipo de extração
+        st.markdown("---")
+        st.subheader("Tipos de Extração")
+        extraction_counts = session.query(
+            UFDRFile.extraction_type,
+            func.count(UFDRFile.id).label('count')
+        ).group_by(UFDRFile.extraction_type).all()
+
+        if extraction_counts:
+            df_ext = pd.DataFrame([{
+                'Tipo de Extração': t or 'Desconhecido',
+                'Quantidade': c
+            } for t, c in extraction_counts])
+            col1, col2 = st.columns(2)
+            with col1:
+                st.dataframe(df_ext, width='stretch', hide_index=True)
+            with col2:
+                st.bar_chart(df_ext.set_index('Tipo de Extração'))
+        
     finally:
         session.close()
 

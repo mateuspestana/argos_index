@@ -7,7 +7,7 @@ from pathlib import Path
 import tempfile
 import os
 
-from argos.utils.hashing import calculate_file_hash, calculate_string_hash
+from argos.utils.hashing import calculate_file_hash, calculate_file_md5, calculate_string_hash
 from argos.utils.text_utils import normalize_text, clean_text, extract_context, is_text_file
 
 
@@ -47,6 +47,29 @@ class TestHashing(unittest.TestCase):
         fake_path = Path("/arquivo/que/nao/existe.txt")
         with self.assertRaises(FileNotFoundError):
             calculate_file_hash(fake_path)
+    
+    def test_calculate_file_md5(self):
+        """Testa cálculo de hash MD5 de arquivo"""
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as f:
+            f.write("conteudo de teste para md5")
+            temp_path = Path(f.name)
+        
+        try:
+            md5_1 = calculate_file_md5(temp_path)
+            md5_2 = calculate_file_md5(temp_path)
+            
+            self.assertEqual(md5_1, md5_2)
+            self.assertEqual(len(md5_1), 32)
+            # Deve ser hexadecimal válido
+            int(md5_1, 16)
+        finally:
+            os.unlink(temp_path)
+    
+    def test_calculate_file_md5_nonexistent(self):
+        """Testa erro MD5 com arquivo inexistente"""
+        fake_path = Path("/arquivo/que/nao/existe.txt")
+        with self.assertRaises(FileNotFoundError):
+            calculate_file_md5(fake_path)
 
 
 class TestTextUtils(unittest.TestCase):

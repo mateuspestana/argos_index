@@ -11,6 +11,7 @@ from argos.utils.file_stability import wait_until_stable
 from argos.index.database import DatabaseManager
 from argos.index.extractor import UFDRExtractor
 from argos.index.text_extractor import TextExtractor
+from argos.index.metadata_extractor import UFDRMetadataExtractor
 from argos.index.regex_engine import RegexEngine
 from argos.watcher.monitor import UFDRMonitor
 from argos.config import BATCH_SIZE
@@ -34,9 +35,9 @@ def process_ufdr(ufdr_path: Path):
     
     Pipeline:
     1. Calcula hash e extrai UFDR
-    2. Extrai texto (database.db ou arquivos)
-    3. Executa regex sobre textos
-    4. Valida documentos sensíveis
+    2. Extrai metadados (tipo de extração + versão Cellebrite)
+    3. Extrai texto com MD5 por arquivo interno
+    4. Executa regex sobre textos
     5. Persiste no banco de dados
     6. Limpa arquivos temporários
     
@@ -46,6 +47,7 @@ def process_ufdr(ufdr_path: Path):
     logger.info(f"Iniciando processamento: {ufdr_path.name}")
     
     db_manager = DatabaseManager()
+    db_manager.create_tables()  # garante schema atualizado (migrações para bases antigas)
     extractor = UFDRExtractor()
     regex_engine = RegexEngine()
     
@@ -63,31 +65,38 @@ def process_ufdr(ufdr_path: Path):
         extract_dir = extractor.extract(ufdr_path, ufdr_id)
         
         try:
-            # 2. Extrai texto
+            ufdr_full_path = str(ufdr_path.resolve())
+
+            # 2. Extrai metadados (tipo de extração + versão Cellebrite)
+            metadata_extractor = UFDRMetadataExtractor(extract_dir)
+            ufdr_metadata = metadata_extractor.extract_metadata()
+            logger.info(f"Tipo de extração: {ufdr_metadata.extraction_type}")
+            logger.info(f"Versão Cellebrite: {ufdr_metadata.cellebrite_version or 'N/A'}")
+
+            # 3. Extrai texto
             text_extractor = TextExtractor(extract_dir)
             text_entries = []
             regex_hits = []
             
-            ufdr_full_path = str(ufdr_path.resolve())
             logger.info("Extraindo texto...")
-            for text, source_path in text_extractor.extract_all():
+            for text, source_path, file_md5 in text_extractor.extract_all():
                 if text and text.strip():
                     source_name = Path(source_path).name if source_path else None
                     full_source_path = str(Path(ufdr_full_path) / source_path) if source_path else ufdr_full_path
-                    text_entries.append((ufdr_id, text, source_path, source_name, full_source_path))
+                    text_entries.append((ufdr_id, text, source_path, source_name, full_source_path, file_md5))
 
             logger.info(f"Extraídas {len(text_entries)} entradas de texto")
 
-            # 3. Executa regex
+            # 4. Executa regex
             logger.info("Executando regex...")
-            for ufdr_id_entry, text, source_path, source_name, full_source_path in text_entries:
+            for ufdr_id_entry, text, source_path, source_name, full_source_path, file_md5 in text_entries:
                 hits = regex_engine.process_text(text, ufdr_id)
                 for type_name, value, validated, context in hits:
-                    regex_hits.append((ufdr_id, type_name, value, validated, context, source_path))
+                    regex_hits.append((ufdr_id, type_name, value, validated, context, source_path, file_md5))
 
             logger.info(f"Encontrados {len(regex_hits)} hits de regex")
 
-            # 4. Persiste no banco
+            # 5. Persiste no banco
             logger.info("Persistindo no banco de dados...")
 
             db_manager.add_ufdr_file(
@@ -95,6 +104,8 @@ def process_ufdr(ufdr_path: Path):
                 filename=ufdr_path.name,
                 source=str(ufdr_path.parent),
                 full_path=ufdr_full_path,
+                extraction_type=ufdr_metadata.extraction_type,
+                cellebrite_version=ufdr_metadata.cellebrite_version,
                 status="processed"
             )
             
@@ -144,11 +155,15 @@ def process_ufdr(ufdr_path: Path):
         # Marca como erro no banco
         try:
             ufdr_id = extractor.get_ufdr_id(ufdr_path)
+            _et = ufdr_metadata.extraction_type if 'ufdr_metadata' in locals() else None
+            _cv = ufdr_metadata.cellebrite_version if 'ufdr_metadata' in locals() else None
             db_manager.add_ufdr_file(
                 ufdr_id=ufdr_id,
                 filename=ufdr_path.name,
                 source=str(ufdr_path.parent),
                 full_path=str(ufdr_path.resolve()),
+                extraction_type=_et,
+                cellebrite_version=_cv,
                 status="error"
             )
         except Exception:

@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple
 
 from sqlalchemy import (
     Boolean, BigInteger, CHAR, Column, DateTime, ForeignKey,
-    Index, Integer, String, Text, create_engine
+    Index, Integer, String, Text, create_engine, text
 )
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
@@ -30,6 +30,8 @@ class UFDRFile(Base):
     filename = Column(Text, nullable=False, comment="Nome original do arquivo")
     source = Column(Text, nullable=True, comment="Origem do arquivo")
     full_path = Column(Text, nullable=True, comment="Caminho completo do UFDR no disco")
+    extraction_type = Column(String(50), nullable=True, comment="Tipo de extração: Apple, Google (Android), Desconhecido")
+    cellebrite_version = Column(String(50), nullable=True, comment="Versão do Cellebrite UFED utilizada")
     processed_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), comment="Timestamp de processamento")
     status = Column(String(20), nullable=False, default="processed", comment="Status: processed, error")
     
@@ -48,6 +50,7 @@ class TextEntry(Base):
     source_path = Column(Text, nullable=True, comment="Caminho interno no UFDR")
     source_name = Column(Text, nullable=True, comment="Nome do arquivo (último segmento do source_path)")
     full_source_path = Column(Text, nullable=True, comment="Caminho completo do arquivo interno (UFDR + source_path)")
+    file_md5 = Column(CHAR(32), nullable=True, comment="Hash MD5 do arquivo interno de onde o texto foi extraído")
     indexed_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), comment="Timestamp de indexação")
     
     # Relacionamentos
@@ -70,6 +73,7 @@ class RegexHit(Base):
     validated = Column(Boolean, nullable=False, default=False, comment="Se passou por validação lógica")
     context = Column(Text, nullable=True, comment="Trecho de contexto próximo")
     source_path = Column(Text, nullable=True, comment="Caminho interno no UFDR onde o hit foi encontrado")
+    file_md5 = Column(CHAR(32), nullable=True, comment="Hash MD5 do arquivo interno onde o hit foi encontrado")
     
     # Relacionamentos
     ufdr_file = relationship("UFDRFile", back_populates="regex_hits")
@@ -121,13 +125,40 @@ class DatabaseManager:
         )
         
     def create_tables(self):
-        """Cria todas as tabelas do schema se não existirem"""
+        """Cria todas as tabelas do schema se não existirem e aplica migrações pendentes."""
         try:
             Base.metadata.create_all(self.engine, checkfirst=True)
+            if DB_TYPE == "sqlite":
+                self._migrate_sqlite_schema_v1_2()
             logger.info("Tabelas verificadas/criadas com sucesso")
         except SQLAlchemyError as e:
             logger.error(f"Erro ao criar tabelas: {e}")
             raise
+
+    def _migrate_sqlite_schema_v1_2(self) -> None:
+        """Adiciona colunas da v1.2.0 em bancos SQLite existentes (idempotente)."""
+        migrations = [
+            ("ufdr_files", "extraction_type", "VARCHAR(50)"),
+            ("ufdr_files", "cellebrite_version", "VARCHAR(50)"),
+            ("text_entries", "file_md5", "CHAR(32)"),
+            ("regex_hits", "file_md5", "CHAR(32)"),
+        ]
+        with self.engine.connect() as conn:
+            for table, column, col_type in migrations:
+                try:
+                    result = conn.execute(
+                        text(f"PRAGMA table_info({table})")
+                    )
+                    existing = {row[1] for row in result.fetchall()}
+                    if column not in existing:
+                        conn.execute(
+                            text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+                        )
+                        conn.commit()
+                        logger.info(f"Migração 1.2.0: coluna {table}.{column} adicionada")
+                except SQLAlchemyError as e:
+                    logger.warning(f"Migração {table}.{column}: {e}")
+                    conn.rollback()
     
     def get_session(self) -> Session:
         """Retorna uma nova sessão do banco de dados"""
@@ -139,6 +170,8 @@ class DatabaseManager:
         filename: str,
         source: Optional[str] = None,
         full_path: Optional[str] = None,
+        extraction_type: Optional[str] = None,
+        cellebrite_version: Optional[str] = None,
         status: str = "processed"
     ) -> UFDRFile:
         """
@@ -149,6 +182,8 @@ class DatabaseManager:
             filename: Nome do arquivo
             source: Origem do arquivo
             full_path: Caminho completo do UFDR no disco (opcional; se None, montado de source/filename)
+            extraction_type: Tipo de extração (Apple, Google (Android), Desconhecido)
+            cellebrite_version: Versão do Cellebrite UFED
             status: Status (processed, error)
 
         Returns:
@@ -166,6 +201,8 @@ class DatabaseManager:
                 ufdr_file.filename = filename
                 ufdr_file.source = source
                 ufdr_file.full_path = full_path
+                ufdr_file.extraction_type = extraction_type
+                ufdr_file.cellebrite_version = cellebrite_version
                 ufdr_file.status = status
                 ufdr_file.processed_at = datetime.now(timezone.utc)
             else:
@@ -174,6 +211,8 @@ class DatabaseManager:
                     filename=filename,
                     source=source,
                     full_path=full_path,
+                    extraction_type=extraction_type,
+                    cellebrite_version=cellebrite_version,
                     status=status
                 )
                 session.add(ufdr_file)
@@ -184,6 +223,8 @@ class DatabaseManager:
                 'filename': ufdr_file.filename,
                 'source': ufdr_file.source,
                 'full_path': ufdr_file.full_path,
+                'extraction_type': ufdr_file.extraction_type,
+                'cellebrite_version': ufdr_file.cellebrite_version,
                 'status': ufdr_file.status,
                 'processed_at': ufdr_file.processed_at
             })()
@@ -196,13 +237,13 @@ class DatabaseManager:
     
     def batch_insert_text_entries(
         self,
-        entries: List[Tuple[str, str, Optional[str], Optional[str], Optional[str]]]
+        entries: List[Tuple[str, str, Optional[str], Optional[str], Optional[str], Optional[str]]]
     ) -> int:
         """
         Insere múltiplas entradas de texto em batch.
 
         Args:
-            entries: Lista de tuplas (ufdr_id, content, source_path, source_name, full_source_path)
+            entries: Lista de tuplas (ufdr_id, content, source_path, source_name, full_source_path, file_md5)
 
         Returns:
             int: Número de entradas inseridas
@@ -218,9 +259,10 @@ class DatabaseManager:
                     content=content,
                     source_path=source_path,
                     source_name=source_name,
-                    full_source_path=full_source_path
+                    full_source_path=full_source_path,
+                    file_md5=file_md5
                 )
-                for ufdr_id, content, source_path, source_name, full_source_path in entries
+                for ufdr_id, content, source_path, source_name, full_source_path, file_md5 in entries
             ]
             
             # Usa add_all que permite autoincrement funcionar corretamente
@@ -238,13 +280,13 @@ class DatabaseManager:
     
     def batch_insert_regex_hits(
         self,
-        hits: List[Tuple[str, str, str, bool, Optional[str], Optional[str]]]
+        hits: List[Tuple[str, str, str, bool, Optional[str], Optional[str], Optional[str]]]
     ) -> int:
         """
         Insere múltiplos regex hits em batch.
 
         Args:
-            hits: Lista de tuplas (ufdr_id, type, value, validated, context, source_path)
+            hits: Lista de tuplas (ufdr_id, type, value, validated, context, source_path, file_md5)
 
         Returns:
             int: Número de hits inseridos
@@ -261,9 +303,10 @@ class DatabaseManager:
                     value=value,
                     validated=validated,
                     context=context,
-                    source_path=source_path
+                    source_path=source_path,
+                    file_md5=file_md5
                 )
-                for ufdr_id, type_name, value, validated, context, source_path in hits
+                for ufdr_id, type_name, value, validated, context, source_path, file_md5 in hits
             ]
             
             # Usa add_all que permite autoincrement funcionar corretamente

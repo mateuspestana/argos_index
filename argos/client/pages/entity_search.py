@@ -178,6 +178,7 @@ def search_entities(
                 'Tipo': result.type,
                 'Valor': result.value,
                 'Validado': 'Sim' if result.validated else 'Não',
+                'MD5 do arquivo': getattr(result, 'file_md5', None) or 'N/A',
                 'UFDR (nome)': ufdr.filename if ufdr else 'N/A',
                 'Caminho completo do UFDR': ufdr_full_path or 'N/A',
                 'Nome do arquivo': source_name,

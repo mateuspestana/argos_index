@@ -88,12 +88,12 @@ class TestIntegration(unittest.TestCase):
             all_hits = []
             
             ufdr_full_path = str(self.ufdr_file.resolve())
-            for text, source_path in extracted_texts:
+            for text, source_path, file_md5 in extracted_texts:
                 hits = regex_engine.process_text(text, ufdr_id)
                 source_name = Path(source_path).name if source_path else None
                 full_source_path = str(Path(ufdr_full_path) / source_path) if source_path else ufdr_full_path
                 for type_name, value, validated, context in hits:
-                    all_hits.append((ufdr_id, type_name, value, validated, context, source_path))
+                    all_hits.append((ufdr_id, type_name, value, validated, context, source_path, file_md5))
 
             self.assertGreater(len(all_hits), 0)
 
@@ -105,8 +105,8 @@ class TestIntegration(unittest.TestCase):
             )
 
             text_entries = [
-                (ufdr_id, text, source_path, Path(source_path).name if source_path else None, str(Path(ufdr_full_path) / source_path) if source_path else ufdr_full_path)
-                for text, source_path in extracted_texts
+                (ufdr_id, text, source_path, Path(source_path).name if source_path else None, str(Path(ufdr_full_path) / source_path) if source_path else ufdr_full_path, file_md5)
+                for text, source_path, file_md5 in extracted_texts
             ]
             self.db_manager.batch_insert_text_entries(text_entries)
             self.db_manager.batch_insert_regex_hits(all_hits)
