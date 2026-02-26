@@ -11,6 +11,8 @@ root_dir = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(root_dir))
 
 import streamlit as st
+from sqlalchemy import or_
+
 from argos.index.database import DatabaseManager, UFDRFile, TextEntry
 
 
@@ -32,8 +34,12 @@ def main():
     
     db_manager = get_db_manager()
     
-    # Campo de busca
-    search_query = st.text_input("Digite sua busca:", placeholder="Ex: email, telefone, documento...")
+    # Campo de busca (texto ou MD5 do arquivo)
+    search_query = st.text_input(
+        "Digite sua busca:",
+        placeholder="Ex: email, telefone, documento... ou MD5 do arquivo (32 caracteres hex)",
+        help="Busca no conteúdo do texto e também pelo MD5 do arquivo interno."
+    )
     
     # Filtro por UFDR - Query direta para garantir dados atualizados
     from argos.index.database import UFDRFile
@@ -131,16 +137,18 @@ def search_text(
                     ufdr_filter = ufdr.id
                     break
         
-        # Busca usando LIKE (SQLite) ou FULLTEXT (MySQL)
+        # Busca no conteúdo e no MD5 do arquivo (LIKE em ambos)
+        text_or_md5 = or_(
+            TextEntry.content.like(f"%{query}%"),
+            TextEntry.file_md5.like(f"%{query}%")
+        )
         if ufdr_filter:
             results = session.query(TextEntry).filter(
                 TextEntry.ufdr_id == ufdr_filter,
-                TextEntry.content.like(f"%{query}%")
+                text_or_md5
             ).all()
         else:
-            results = session.query(TextEntry).filter(
-                TextEntry.content.like(f"%{query}%")
-            ).limit(1000).all()
+            results = session.query(TextEntry).filter(text_or_md5).limit(1000).all()
         
         formatted_results = []
         for result in results:

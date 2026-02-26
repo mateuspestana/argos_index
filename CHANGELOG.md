@@ -6,7 +6,15 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
-## [1.3.1] - Atual
+## [1.3.2] - Atual
+
+### Adicionado
+
+- **Busca textual por MD5**: na página de busca textual, o termo digitado passa a ser buscado também no campo **MD5 do arquivo** (`file_md5` das entradas). É possível localizar entradas pelo MD5 completo (32 caracteres hexadecimais) ou por um trecho do hash. O placeholder e o texto de ajuda do campo informam que a busca aceita texto ou MD5.
+
+---
+
+## [1.3.1]
 
 ### Alterado
 
