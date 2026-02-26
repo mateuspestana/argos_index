@@ -13,6 +13,7 @@ from argos.index.extractor import UFDRExtractor
 from argos.index.text_extractor import TextExtractor
 from argos.index.metadata_extractor import UFDRMetadataExtractor
 from argos.index.regex_engine import RegexEngine
+from argos.index.location_history_extractor import extract_location_history_from_dir
 from argos.watcher.monitor import UFDRMonitor
 from argos.config import BATCH_SIZE
 
@@ -142,6 +143,17 @@ def process_ufdr(ufdr_path: Path):
                 logger.info(f"Total de {total_inserted} regex hits inseridos no banco")
             else:
                 logger.info("Nenhum regex hit encontrado")
+
+            # 5b. Histórico de localização (*LocationHistory*.json — latitudeE7/longitudeE7)
+            location_points = extract_location_history_from_dir(extract_dir)
+            if location_points:
+                batch_size_loc = 50_000
+                for i in range(0, len(location_points), batch_size_loc):
+                    batch = location_points[i : i + batch_size_loc]
+                    inserted = db_manager.batch_insert_location_points(ufdr_id, batch)
+                    logger.info(f"Inseridos {inserted} pontos de localização (batch {i // batch_size_loc + 1})")
+            else:
+                logger.debug("Nenhum arquivo Location History encontrado neste UFDR")
             
             logger.info(f"Processamento concluído com sucesso: {ufdr_path.name}")
         

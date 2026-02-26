@@ -52,6 +52,7 @@ pages = {
     "Análise": [
         st.Page("pages/statistics.py", title="Estatísticas", icon="📊"),
         st.Page("pages/cross_reference.py", title="Cruzamentos", icon="🔗"),
+        st.Page("pages/map_analysis.py", title="Mapa — Histórico de localização", icon="🗺️"),
         st.Page("pages/ufdr_list.py", title="UFDRs Processados", icon="📁"),
     ]
 }

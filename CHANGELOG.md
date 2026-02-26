@@ -6,7 +6,23 @@ O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.
 
 ---
 
-## [1.2.0] - Atual
+## [1.3.0] - Atual
+
+### Adicionado
+
+- **Histórico de localização (Location History)**: extração de arquivos `*LocationHistory*.json` (ex.: Google Takeout) a partir do conteúdo extraído do UFDR. Suporte a `latitudeE7`/`longitudeE7` e timestamp (ISO 8601 ou `timestampMs`).
+- **Nova tabela `location_points`**: persistência de pontos (ufdr_id, latitude, longitude, point_at, source_path). Inserção em batch no pipeline do worker (lotes de 50k pontos).
+- **Página "Mapa — Histórico de localização"**: no client, sob o menu Análise. Permite selecionar um UFDR que possua pontos de localização e visualizar no mapa (`st.map`) por onde a pessoa esteve, com estatísticas (quantidade de pontos, período) e amostra em tabela com data/hora.
+- **Módulo `location_history_extractor.py`**: funções `parse_location_history_file()` e `extract_location_history_from_dir()` para localizar e parsear JSON de Location History.
+- **API de banco**: `batch_insert_location_points()`, `get_location_points()`, `get_ufdr_ids_with_locations()` no `DatabaseManager`.
+
+### Nota
+
+- UFDRs processados **antes** da 1.3.0 não possuem pontos de localização no banco. Para que apareçam no mapa, é necessário reprocessar o UFDR (remover do banco e rodar o worker novamente).
+
+---
+
+## [1.2.0]
 
 ### Adicionado
 

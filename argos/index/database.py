@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
 from sqlalchemy import (
-    Boolean, BigInteger, CHAR, Column, DateTime, ForeignKey,
+    Boolean, BigInteger, CHAR, Column, DateTime, Float, ForeignKey,
     Index, Integer, String, Text, create_engine, text
 )
 from sqlalchemy.orm import declarative_base
@@ -38,6 +38,22 @@ class UFDRFile(Base):
     # Relacionamentos
     text_entries = relationship("TextEntry", back_populates="ufdr_file", cascade="all, delete-orphan")
     regex_hits = relationship("RegexHit", back_populates="ufdr_file", cascade="all, delete-orphan")
+    location_points = relationship("LocationPoint", back_populates="ufdr_file", cascade="all, delete-orphan")
+
+
+class LocationPoint(Base):
+    """Pontos de histórico de localização (ex.: Google Location History)."""
+    __tablename__ = "location_points"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ufdr_id = Column(CHAR(64), ForeignKey("ufdr_files.id", ondelete="CASCADE"), nullable=False, index=True)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    point_at = Column(DateTime, nullable=True, comment="Data/hora do ponto (quando disponível)")
+    source_path = Column(Text, nullable=True, comment="Caminho do arquivo JSON de origem no UFDR")
+
+    ufdr_file = relationship("UFDRFile", back_populates="location_points")
+    __table_args__ = (Index("idx_location_points_ufdr", "ufdr_id"),)
 
 
 class TextEntry(Base):
@@ -350,6 +366,79 @@ class DatabaseManager:
             for ufdr in results:
                 session.refresh(ufdr)
             return results
+        finally:
+            session.close()
+
+    def batch_insert_location_points(
+        self,
+        ufdr_id: str,
+        points: List[Tuple[float, float, Optional[datetime]]],
+        source_path: Optional[str] = None,
+    ) -> int:
+        """
+        Insere pontos de histórico de localização para um UFDR.
+
+        Args:
+            ufdr_id: ID do UFDR
+            points: Lista de (latitude, longitude, point_at datetime ou None)
+            source_path: Caminho do arquivo de origem no UFDR (opcional)
+
+        Returns:
+            Número de pontos inseridos
+        """
+        if not points:
+            return 0
+        session = self.get_session()
+        try:
+            objs = [
+                LocationPoint(
+                    ufdr_id=ufdr_id,
+                    latitude=lat,
+                    longitude=lon,
+                    point_at=pt_at,
+                    source_path=source_path,
+                )
+                for lat, lon, pt_at in points
+            ]
+            session.add_all(objs)
+            session.flush()
+            session.commit()
+            return len(objs)
+        except SQLAlchemyError as e:
+            session.rollback()
+            logger.error("Erro ao inserir location points: %s", e)
+            raise
+        finally:
+            session.close()
+
+    def get_location_points(
+        self, ufdr_id: str
+    ) -> List[Tuple[float, float, Optional[datetime]]]:
+        """Retorna (lat, lon, point_at) para todos os pontos de um UFDR."""
+        session = self.get_session()
+        try:
+            rows = (
+                session.query(LocationPoint.latitude, LocationPoint.longitude, LocationPoint.point_at)
+                .filter(LocationPoint.ufdr_id == ufdr_id)
+                .order_by(LocationPoint.point_at.asc().nulls_last(), LocationPoint.id.asc())
+                .all()
+            )
+            return [(r[0], r[1], r[2]) for r in rows]
+        finally:
+            session.close()
+
+    def get_ufdr_ids_with_locations(self) -> List[Tuple[str, int]]:
+        """Retorna [(ufdr_id, count)] dos UFDRs que possuem pontos de localização."""
+        session = self.get_session()
+        try:
+            from sqlalchemy import func
+
+            rows = (
+                session.query(LocationPoint.ufdr_id, func.count(LocationPoint.id))
+                .group_by(LocationPoint.ufdr_id)
+                .all()
+            )
+            return [(r[0], r[1]) for r in rows]
         finally:
             session.close()
 
